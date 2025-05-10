@@ -1,0 +1,163 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { ethers } from 'ethers';
+import contractAbi from './CommunityFunding.json';
+
+// Components
+import Navbar from './components/Navbar';
+import Footer from './components/Footer';
+import LoadingSpinner from './components/LoadingSpinner';
+
+// Pages
+import HomePage from './pages/HomePage';
+import ProjectsPage from './pages/ProjectsPage';
+import ProjectDetailPage from './pages/ProjectDetailPage';
+import CreateProjectPage from './pages/CreateProjectPage';
+import ProfilePage from './pages/ProfilePage';
+import AboutPage from './pages/AboutPage';
+
+// Context
+import { NotificationProvider } from './context/NotificationContext';
+
+const contractAddress = "0xFEeC5C6d57c3cb243f477c39C650Cd3a992fcF42";
+
+function App() {
+  const [projects, setProjects] = useState([]);
+  const [account, setAccount] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Use useCallback to memoize the loadBlockchainData function
+  const loadBlockchainData = useCallback(async () => {
+    if (!window.ethereum) {
+      alert("Please install MetaMask!");
+      return [];
+    }
+
+    try {
+      setIsLoading(true);
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(contractAddress, contractAbi.abi, signer);
+      const count = await contract.projectCount();
+
+      const items = [];
+      for (let i = 1; i <= count; i++) {
+        const project = await contract.projects(i);
+        // Add the ID to each project for easier reference
+        items.push({...project, id: i});
+      }
+      setProjects(items);
+      return items; // Return for components that need immediate access
+    } catch (error) {
+      console.error("Error loading blockchain data:", error);
+      return []; // Return empty array on error
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Function to get details for a specific project
+  const getProjectDetails = useCallback(async (id) => {
+    if (!window.ethereum) {
+      throw new Error("Please install MetaMask!");
+    }
+
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    const contract = new ethers.Contract(contractAddress, contractAbi.abi, signer);
+
+    const project = await contract.projects(id);
+    return {...project, id};
+  }, []);
+
+  // Function to donate to a project
+  const donate = useCallback(async (id, amount) => {
+    if (!window.ethereum) {
+      throw new Error("Please install MetaMask!");
+    }
+
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    const contract = new ethers.Contract(contractAddress, contractAbi.abi, signer);
+
+    const tx = await contract.donate(id, {
+      value: ethers.parseEther(amount),
+    });
+    await tx.wait();
+  }, []);
+
+  // Function to withdraw funds from a project
+  const withdrawFunds = useCallback(async (id) => {
+    if (!window.ethereum) {
+      throw new Error("Please install MetaMask!");
+    }
+
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    const contract = new ethers.Contract(contractAddress, contractAbi.abi, signer);
+
+    const tx = await contract.withdrawFunds(id);
+    await tx.wait();
+  }, []);
+
+  // Connect wallet function
+  const connectWallet = useCallback(async () => {
+    if (!window.ethereum) {
+      alert("Please install MetaMask!");
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+      setAccount(accounts[0]);
+    } catch (error) {
+      console.error("User denied account access", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Connect wallet on initial load
+    connectWallet();
+
+    // Load blockchain data
+    loadBlockchainData();
+
+    // Listen for account changes
+    if (window.ethereum) {
+      window.ethereum.on('accountsChanged', (accounts) => {
+        if (accounts.length > 0) {
+          setAccount(accounts[0]);
+        } else {
+          setAccount(null);
+        }
+      });
+    }
+  }, [connectWallet, loadBlockchainData]);
+
+  return (
+    <NotificationProvider>
+      <Router>
+        <div className="flex flex-col min-h-screen bg-gradient-to-b from-indigo-950 via-purple-950 to-indigo-950">
+          {isLoading && <LoadingSpinner fullScreen />}
+          <Navbar account={account} connectWallet={connectWallet} />
+          <main className="flex-grow pt-16">
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/projects" element={<ProjectsPage projects={projects} loadBlockchainData={loadBlockchainData} />} />
+              <Route path="/project/:id" element={<ProjectDetailPage account={account} getProjectDetails={getProjectDetails} donate={donate} withdrawFunds={withdrawFunds} />} />
+              <Route path="/create" element={<CreateProjectPage account={account} />} />
+              <Route path="/profile" element={<ProfilePage account={account} />} />
+              <Route path="/about" element={<AboutPage />} />
+            </Routes>
+          </main>
+          <Footer />
+        </div>
+      </Router>
+    </NotificationProvider>
+  );
+}
+
+export default App;

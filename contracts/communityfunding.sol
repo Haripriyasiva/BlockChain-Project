@@ -54,4 +54,6 @@ contract CommunityFunding {
 
         emit FundsWithdrawn(_projectId, project.amountRaised);
     }
+
+   
 }
